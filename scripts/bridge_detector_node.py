@@ -43,14 +43,17 @@ class BridgeDetector:
         y_end = int(-2 / resolution - origin_y / resolution)
 
         self.bridge_coordinates = []
-
+        seen_y_coords = set()
         for x in range(x_start, x_end):
             for y in range(y_start, y_end):
                 index = y * width + x
                 if (self.map_data[index]) > 60:
                     coor_x = x * resolution + self.map_info.origin.position.x
                     coor_y = y * resolution + self.map_info.origin.position.y
-                    self.bridge_coordinates.append((coor_x, coor_y))
+                    if coor_y not in seen_y_coords:
+                        self.bridge_coordinates.append((coor_x, coor_y))
+                        seen_y_coords.add(coor_y)
+                    
 
         if self.bridge_coordinates:
             y_values = [coord[1] for coord in self.bridge_coordinates]
