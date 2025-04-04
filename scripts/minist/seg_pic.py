@@ -27,13 +27,13 @@ def predict(image, model):
         _, predicted = torch.max(output, 1)
     return image, predicted
 
-def recognize(image, area_threshold=100.0):
+def recognize(image, area_threshold=100.0, kernel_size=3, gs_size = 5):
 
     threshold_value = 80
     _, binary_image = cv2.threshold(image, threshold_value, 255, cv2.THRESH_BINARY_INV)
 
-    
-    kernel = np.ones((3, 3), np.uint8)
+    # if image size changed, change here
+    kernel = np.ones((kernel_size, kernel_size), np.uint8)
     filtered_image = cv2.erode(binary_image, kernel, iterations=1)
 
     
@@ -61,8 +61,8 @@ def recognize(image, area_threshold=100.0):
         
         morph_close = cv2.morphologyEx(inverted_image, cv2.MORPH_CLOSE, kernel)
 
-        
-        blurred = cv2.GaussianBlur(morph_close, (5, 5), 0)
+        # if image size changed, change here
+        blurred = cv2.GaussianBlur(morph_close, (gs_size , gs_size ), 0)
         _, threshold_blur = cv2.threshold(blurred, 128, 255, cv2.THRESH_BINARY)
 
         
