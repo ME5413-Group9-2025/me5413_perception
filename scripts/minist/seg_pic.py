@@ -4,16 +4,17 @@ from PIL import Image
 import matplotlib.pyplot as plt
 import numpy as np
 import cv2
-from MyNet import CustomResNet18
+from .MyNet import CustomResNet18
+import copy
 
 
 model = CustomResNet18()
-model.load_state_dict(torch.load('mnist_resnet18.pth'))
+model.load_state_dict(torch.load('minist/mnist_resnet18.pth'))
 model.eval()
 
 
-image_path = "8.png" 
-image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+# image_path = "../image.png"
+# image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
 
 def predict(image, model):
     image = Image.fromarray(image)
@@ -27,7 +28,9 @@ def predict(image, model):
         _, predicted = torch.max(output, 1)
     return image, predicted
 
-def recognize(image, area_threshold=100.0, kernel_size=3, gs_size = 5):
+def recognize(image, detection_threshold=None, area_threshold=100.0, kernel_size=3, gs_size = 5, return_max=False):
+    image = np.array(image)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
     threshold_value = 80
     _, binary_image = cv2.threshold(image, threshold_value, 255, cv2.THRESH_BINARY_INV)
@@ -40,12 +43,14 @@ def recognize(image, area_threshold=100.0, kernel_size=3, gs_size = 5):
     contours, _ = cv2.findContours(filtered_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     results = []
-
+    vis_image = copy.deepcopy(image)
+    vis_image = cv2.cvtColor(vis_image, cv2.COLOR_GRAY2BGR)
+    max_area = 0
+    max_result = [0,(0,0,0,0)]
     for contour in contours:
         area = cv2.contourArea(contour)
         if area < area_threshold:
             continue
-
         x, y, w, h = cv2.boundingRect(contour)
         roi = binary_image[y:y + h, x:x + w]
         occupancy_ratio = np.sum(roi == 255) / roi.size
@@ -78,11 +83,21 @@ def recognize(image, area_threshold=100.0, kernel_size=3, gs_size = 5):
         center_x = int(x + w / 2)
         center_y = int(y + h / 2)
 
-        
-        results.append([predicted.item(), (center_x, center_y)])
+        cv2.rectangle(vis_image, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        results.append([predicted.item(), (x, y, x+w, y+h)])
+        if area > max_area:
+            max_area = area
+            max_result = [predicted.item(), (x, y, x+w, y+h)]
+    print(results)
+    cv2.imshow("image", vis_image)
+    cv2.imwrite("image.png", image)
+    cv2.waitKey(0)
+    if return_max:
+        return max_result
+    else:
+        return results
 
-    return results
 
-results = recognize(image)
-
-print(results)
+if __name__ == "__main__":
+    results = recognize(image)
+    print(results)

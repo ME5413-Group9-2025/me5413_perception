@@ -65,7 +65,7 @@ class BridgeDetector:
             # yaw angle should be pi = -pi
             bridge_pose.pose.orientation.w = 0.0
             bridge_pose.pose.orientation.z = -1.0
-            bridge_pose.pose.position.x = 9.5
+            bridge_pose.pose.position.x = 8.5
             bridge_pose.pose.position.y = y_center
             self.pose_pub.publish(bridge_pose)
             rospy.loginfo(f"Published bridge center to /bridge_pose: (9.5, {y_center})")
