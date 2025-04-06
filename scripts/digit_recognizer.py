@@ -1,6 +1,5 @@
 import numpy as np
 import rospy
-from sklearn.linear_model import RANSACRegressor
 from transformers import Owlv2Processor, Owlv2ForObjectDetection
 from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 from PIL import Image
@@ -9,14 +8,14 @@ import cv2 as cv
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-print("Model Loading")
+rospy.loginfo("Model Loading")
 processor = Owlv2Processor.from_pretrained("google/owlv2-base-patch16-ensemble")
 model = Owlv2ForObjectDetection.from_pretrained("google/owlv2-base-patch16-ensemble").to(device)
 
 ocr_processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-handwritten")
 ocr_model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-handwritten").to(device)
 
-print("Model Loaded")
+rospy.loginfo("Model Loaded")
 text_labels = [["digit on the wall"]]
 
 padding = 8
@@ -47,8 +46,10 @@ def recognize(image, detection_threshold=0.0, area_threshold=400.0, debug=False,
         generated_ids = ocr_model.generate(pixel_values, max_new_tokens=1)
         generated_text = ocr_processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
         if generated_text.isdigit() and len(generated_text) == 1:
+            if generated_text == "0":
+                generated_text = 1
             digit_and_position.append([int(generated_text), (x1, y1, x2, y2)])
-            print(digit_and_position[-1])
+            rospy.loginfo(digit_and_position[-1])
             if area > max_area:
                 max_area = area
                 max_result = digit_and_position[-1]
@@ -70,53 +71,23 @@ def get_box_position(bbox, disparity, baseline, camera_info, box_size=0.8):
     fx, fy = K[0], K[4]
     cx, cy = K[2], K[5]
     center_x, center_y = int((x1 + x2) / 2), int((y1 + y2) / 2)
-    if disparity[center_y][center_x] == 0:
-        rospy.logerr("Do not get the depth of center point")
-        return None
-    z = (fx * baseline) / disparity[center_y][center_x]
-    plane_center = ((center_x - cx) / fx, (center_y - cy) / fy, z)
-
-    points = []
-    for u in range(x1, x2 + 1):
-        for v in range(y1, y2 + 1):
-            try:
-                if disparity[v][u] == -1:
-                    continue
-            except IndexError:
-                print(u, v)
-                print(type(u), type(u))
-            z = (fx * baseline) / disparity[v][u]
-            x = (u - cx) / fx
-            y = (v - cy) / fy
-            points.append([x, y, z])
-
-    if len(points) < 3:
-        rospy.logerr(f"Points({len(points)}) not adequate for plane fitting")
-        return None
-
-    points = np.array(points)
-
-    # fit a plane
-    X = points[:, :2]
-    v = points[:, 2]
-    ransac = RANSACRegressor()
-    ransac.fit(X, v)
-
-    # plane equation: z = a*x + b*y + c
-    a, b = ransac.estimator_.coef_
-    c = ransac.estimator_.intercept_
-    normal_vector = np.array([a, b, -1])
-    normal_vector = normal_vector / np.linalg.norm(normal_vector)
-
-    dot = np.dot(plane_center[:2], normal_vector[:2])
-    if dot < 0:
-        box_center = plane_center + (box_size / 2) * normal_vector
-        print(f"box center (x, y): {box_center[:2]}")
-    elif dot > 0:
-        box_center = plane_center - (box_size / 2) * normal_vector
-        print(f"box center (x, y): {box_center[:2]}")
-    else:
-        print("Should not happen")
-        box_center = None
-    # return box_center
-    return plane_center
+    if disparity[center_y][center_x] != -1:
+        z = (fx * baseline) / disparity[center_y][center_x]
+        plane_center = ((center_x - cx) * z / fx, (center_y - cy) * z / fy, z)
+        return plane_center
+    rospy.logwarn("Do not get the depth of center point")
+    half_width, half_height = (x2 - x1) // 2, (y2 - y1) // 2
+    for dx in range(-half_width, 0):
+        for dy in range(-half_height, 0):
+            x1, y1 = center_x + dx, center_y + dy
+            x2, y2 = center_x - dx, center_y - dy
+            if disparity[y1][x1] != -1 and disparity[y2][x2] != -1:
+                z1_3d = (fx * baseline) / disparity[y1][x1]
+                z2_3d = (fx * baseline) / disparity[y2][x2]
+                x1_3d = (x1 - cx) * z1_3d / fx
+                x2_3d = (x2 - cy) * z2_3d / fy
+                y1_3d = (y1 - cy) * z1_3d / fy
+                y2_3d = (y2 - cy) * z2_3d / fy
+                return (x1_3d + x2_3d) / 2, (y1_3d + y2_3d) / 2, (z1_3d + z2_3d) / 2
+    rospy.logerr("Could not find a symmetric depth")
+    return None
