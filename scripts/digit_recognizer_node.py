@@ -25,7 +25,16 @@ parent_path = Path(__file__).parent.absolute()
 sys.path.append(str(parent_path))
 
 # Our module
-import digit_recognizer as recognizer
+import torch
+
+device = torch.device("cuda:0")
+device_properties = torch.cuda.get_device_properties(device)
+max_memory_gb = device_properties.total_memory / (1024 ** 3)
+if max_memory_gb > 13:
+    import digit_recognizer as recognizer
+else:
+    print("Your GPU do not support")
+    exit(-1)
 
 # import minist.seg_pic
 
