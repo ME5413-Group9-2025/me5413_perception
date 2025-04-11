@@ -64,14 +64,14 @@ class OnlineDigitCounter:
         self.marker_pub = rospy.Publisher("/digit_markers", MarkerArray, queue_size=1)
         self.map_sub = rospy.Subscriber("/map", OccupancyGrid, self.map_callback)
         self.counter_result_pub = rospy.Publisher("/digit_count", Int32MultiArray, queue_size=1)
-        self.disparity_sub = message_filters.Subscriber("/front/disparity", DisparityImage)
-        self.imu_sub = message_filters.Subscriber("/imu/data", Imu)
-        fs = [self.left_image_sub, self.disparity_sub, self.imu_sub]
-        self.sync = message_filters.TimeSynchronizer(fs, queue_size=1)
-        self.sync.registerCallback(self.stereo_camera_callback)
-        # self.scan_sub = message_filters.Subscriber("/scan", LaserScan)
-        # self.sync = message_filters.TimeSynchronizer([self.left_image_sub, self.scan_sub], queue_size=1)
-        # self.sync.registerCallback(self.camera_scan_callback)
+        # self.disparity_sub = message_filters.Subscriber("/front/disparity", DisparityImage)
+        # self.imu_sub = message_filters.Subscriber("/imu/data", Imu)
+        # fs = [self.left_image_sub, self.disparity_sub, self.imu_sub]
+        # self.sync = message_filters.TimeSynchronizer(fs, queue_size=1)
+        # self.sync.registerCallback(self.stereo_camera_callback)
+        self.scan_sub = message_filters.Subscriber("/scan", LaserScan)
+        self.sync = message_filters.TimeSynchronizer([self.left_image_sub, self.scan_sub], queue_size=1)
+        self.sync.registerCallback(self.camera_scan_callback)
         self.gazebo_state_callback = rospy.Subscriber("/gazebo/model_states", ModelStates, self.model_state_callback)
         rospy.loginfo("OnlineNumberCounter initialized")
 
@@ -140,7 +140,7 @@ class OnlineDigitCounter:
     def merge_digit(self, digit, position, target_frame="map"):
         # transform position in camera frame to target frame
         pose = tf2_geometry_msgs.PoseStamped()
-        pose.header.frame_id = "front_left_camera_optical"
+        pose.header.frame_id = "front_laser"
         pose.header.stamp = rospy.Time.now()
         pose.pose.position.x = position[0]
         pose.pose.position.y = position[1]
@@ -149,18 +149,18 @@ class OnlineDigitCounter:
             pose_base_frame = self.tfBuffer.transform(pose, target_frame, timeout=rospy.Duration(nsecs=int(1e8)))
         except TransformException as e:
             rospy.logerr(e)
-            rospy.logerr(f"In perception Module, cannot transform front_left_camera_optical to {target_frame}:")
+            rospy.logerr(f"In perception Module, cannot transform front_laser to {target_frame}:")
             return
         x = pose_base_frame.pose.position.x
         y = pose_base_frame.pose.position.y
         z = pose_base_frame.pose.position.z
         min_distance = math.inf
-        for digit, position in self.digits_and_positions:
+        for _, position in self.digits_and_positions:
             distance = np.linalg.norm([x - position[0], y - position[1]])
             if distance < min_distance:
                 min_distance = distance
         color = "red"
-        if min_distance >= BOX_SIZE and self.is_occupied(x, y):
+        if min_distance >= BOX_SIZE and self.is_occupied(x, y) and x > 8.5:
             color = "green"
             self.digits_and_positions.append((digit, (x, y)))
             rospy.loginfo("Adding New Digits")
@@ -187,6 +187,33 @@ class OnlineDigitCounter:
             self.merge_digit(digit, (x, y, z))
         self.marker_pub.publish(self.marker_array)
 
+    def camera_scan_callback(self, image: Image, scan: LaserScan):
+        if self.camera_info is None or not self.enable_signal:
+            return
+        image_array = self.cv_bridge.imgmsg_to_cv2(image, "bgr8")
+        digit_and_position = recognizer.recognize(PILImage.fromarray(image_array), detection_threshold=0.1,
+                                                  area_threshold=1000, debug=False)
+        K = self.camera_info.K
+        fx, fy = K[0], K[4]
+        cx, cy = K[2], K[5]
+        self.marker_array.markers.clear()
+        for digit, bbox in digit_and_position:
+            x1, y1, x2, y2 = bbox
+            center_x = (x1 + x2) / 2
+            theta = -math.atan2(center_x - cx, fx)
+            index = int(round((theta - scan.angle_min) / scan.angle_increment))
+            if index < 0 or index >= len(scan.ranges):
+                rospy.logwarn(f"index out of range: {index}")
+                continue
+            r = scan.ranges[index]
+            if r == math.inf:
+                rospy.logwarn(f"R is {r}")
+                continue
+            x_laser = r * math.cos(theta)
+            y_laser = r * math.sin(theta)
+            self.merge_digit(digit, (x_laser, y_laser, 0.3))
+        self.marker_pub.publish(self.marker_array)
+
     def camera_info_callback(self, camera_info: CameraInfo):
         self.camera_info = camera_info
 
@@ -209,7 +236,7 @@ class OnlineDigitCounter:
 
                 if 0 <= check_x < self.map.info.width and 0 <= check_y < self.map.info.height:
                     index = check_y * self.map.info.width + check_x
-                    if self.map.data[index] > 50:
+                    if self.map.data[index] > 30:
                         return True
         return False
 

@@ -39,7 +39,7 @@ class BridgeDetector:
         x_start = int(5 / resolution - origin_x / resolution)
         x_end = int(7 / resolution - origin_x / resolution)
 
-        y_start = int(-23 / resolution - origin_y / resolution)
+        y_start = int(-20 / resolution - origin_y / resolution)
         y_end = int(-2 / resolution - origin_y / resolution)
 
         self.bridge_coordinates = []
@@ -47,13 +47,12 @@ class BridgeDetector:
         for x in range(x_start, x_end):
             for y in range(y_start, y_end):
                 index = y * width + x
-                if (self.map_data[index]) > 60:
+                if (self.map_data[index]) > 80:
                     coor_x = x * resolution + self.map_info.origin.position.x
                     coor_y = y * resolution + self.map_info.origin.position.y
                     if coor_y not in seen_y_coords:
                         self.bridge_coordinates.append((coor_x, coor_y))
                         seen_y_coords.add(coor_y)
-                    
 
         if self.bridge_coordinates:
             y_values = [coord[1] for coord in self.bridge_coordinates]
@@ -65,7 +64,7 @@ class BridgeDetector:
             # yaw angle should be pi = -pi
             bridge_pose.pose.orientation.w = 0.0
             bridge_pose.pose.orientation.z = -1.0
-            bridge_pose.pose.position.x = 8.5
+            bridge_pose.pose.position.x = 9
             bridge_pose.pose.position.y = y_center
             self.pose_pub.publish(bridge_pose)
             rospy.loginfo(f"Published bridge center to /bridge_pose: (9.5, {y_center})")
